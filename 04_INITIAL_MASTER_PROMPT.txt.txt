@@ -1,0 +1,10 @@
+I have loaded 3 comprehensive specification files into this workspace:
+1. `01_PROJECT_VISION_AND_RULES.md` (What we are building, what we explicitly want, and what we strictly DO NOT want).
+2. `02_SYSTEM_ARCHITECTURE_AND_FORMULAS.md` (The DuckDB schema, tech stack, directory structure, and exact mathematical formulas for Mode A, Mode B, Master Scan, Anti-Scam filter, and Trade Architect).
+3. `03_COMPLETE_SOURCE_CODE_BLUEPRINT.md` (The complete production Python source code for all 22 files in the project).
+
+Please read all 3 files carefully first. Then execute the following steps in order without skipping anything or using placeholder code:
+1. Create the exact directory structure and write all 22 files (`requirements.txt`, `.env.example`, `config.py`, `data_engine/*`, `quant_engine/*`, `ai_brain/*`, `backtest/*`, and `ui/*`) exactly as specified in `03_COMPLETE_SOURCE_CODE_BLUEPRINT.md`.
+2. Create a Python virtual environment, install `requirements.txt`, and run `python data_engine/db_manager.py` to verify that `alpha_terminal.duckdb` initializes cleanly with all 5 tables.
+3. Verify all module imports across `data_engine`, `quant_engine`, `ai_brain`, `backtest`, and `ui` so there are zero circular imports or syntax errors.
+4. Once all files are created and verified, give me a brief confirmation and stand by so we can run our first data sync and test the Split-Screen UI (`streamlit run ui/app.py`).
