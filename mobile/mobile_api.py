@@ -452,8 +452,8 @@ def _scheduled_eod() -> None:
         traceback.print_exc()
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
+def start_backend() -> None:
+    """Initialize persistent state and start the in-process EOD scheduler."""
     try:
         init_db()
     except Exception:
@@ -474,9 +474,21 @@ async def lifespan(_: FastAPI):
             "[scheduler] EOD sync armed Mon-Fri 16:40 IST and safety retry 19:15 IST — "
             f"next runs: {scheduler.get_job('eod_sync_1640_ist').next_run_time} / {scheduler.get_job('eod_sync_1915_ist').next_run_time}"
         )
-    yield
+
+
+def stop_backend() -> None:
+    """Stop the scheduler when the hosting process shuts down."""
     if scheduler.running:
         scheduler.shutdown(wait=False)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    start_backend()
+    try:
+        yield
+    finally:
+        stop_backend()
 
 
 app = FastAPI(title="AlphaSniper Mobile API", version="1.0.0", lifespan=lifespan)
