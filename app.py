@@ -23,18 +23,52 @@ from mobile.mobile_api import app as mobile_app
 
 
 @spaces.GPU
-def _zero_gpu_probe(prompt: str = "") -> str:
+def _zero_gpu_probe(x: str = "") -> str:
     return "AlphaSniper Ready"
 
 
 if gr is not None:
-    _zero_gpu_demo = gr.Interface(
-        fn=_zero_gpu_probe,
-        inputs=gr.Textbox(label="Status", value="Ready"),
-        outputs=gr.Textbox(label="Response"),
-        title="AlphaSniper ZeroGPU Probe",
-    )
-    app = gr.mount_gradio_app(mobile_app, _zero_gpu_demo, path="/gradio")
+    with gr.Blocks(
+        title="AlphaSniper Terminal",
+        css="""
+            html, body, .gradio-container {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                max-width: 100% !important;
+                overflow: hidden !important;
+                background-color: #0b0f19 !important;
+            }
+            footer { display: none !important; }
+            #app-iframe {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                border: none;
+                margin: 0;
+                padding: 0;
+                z-index: 99999;
+                display: block;
+            }
+        """,
+    ) as demo:
+        _inp = gr.Textbox(visible=False, value="ping")
+        _out = gr.Textbox(visible=False)
+        _btn = gr.Button("Probe", visible=False)
+        _btn.click(fn=_zero_gpu_probe, inputs=_inp, outputs=_out)
+        demo.load(fn=_zero_gpu_probe, inputs=_inp, outputs=_out)
+
+        gr.HTML("""
+            <iframe id="app-iframe" src="/sniper" allow="clipboard-read; clipboard-write"></iframe>
+        """)
+
+    mobile_app.router.routes = [
+        r for r in mobile_app.router.routes if getattr(r, "path", "") != "/"
+    ]
+    app = gr.mount_gradio_app(mobile_app, demo, path="/")
 else:
     app = mobile_app
 
