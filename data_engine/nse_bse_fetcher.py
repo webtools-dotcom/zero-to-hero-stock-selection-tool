@@ -11,20 +11,20 @@ class NSEBSEFetcher:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
-            "Referer": "[https://www.nseindia.com/](https://www.nseindia.com/)"
+            "Referer": "https://www.nseindia.com/"
         })
         self._warm_cookies()
 
     def _warm_cookies(self):
         try:
-            self.session.get("[https://www.nseindia.com](https://www.nseindia.com)", timeout=10)
+            self.session.get("https://www.nseindia.com", timeout=10)
         except Exception:
             pass
 
     def fetch_nse_bhavcopy_delivery(self, date_obj: datetime) -> pd.DataFrame:
         """Downloads NSE Full Bhavcopy with Deliverable Quantity & Delivery %."""
         date_str = date_obj.strftime("%d%m%Y")
-        url = f"[https://nsearchives.nseindia.com/products/content/sec_bhavdata_full](https://nsearchives.nseindia.com/products/content/sec_bhavdata_full)_{date_str}.csv"
+        url = f"https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{date_str}.csv"
         resp = self.session.get(url, timeout=20)
         if resp.status_code != 200 or len(resp.content) < 500:
             return pd.DataFrame()
@@ -77,54 +77,76 @@ class NSEBSEFetcher:
         con.close()
         return len(bhav)
 
-    def sync_recent_corporate_announcements(self):
-        """Fetches recent NSE equity corporate filings and stores them in DuckDB."""
-        self._warm_cookies()
-        url = "[https://www.nseindia.com/api/corporate-announcements?index=equities](https://www.nseindia.com/api/corporate-announcements?index=equities)"
-        try:
-            resp = self.session.get(url, timeout=15)
-            if resp.status_code != 200:
-                return 0
-            items = resp.json()
-        except Exception:
-            return 0
-        
-        if not items:
-            return 0
-        
-        rows = []
-        for item in items:
-            symbol = str(item.get("symbol", "")).strip()
-            isin = str(item.get("isin", "")).strip()
-            seq_id = str(item.get("seq_id") or f"{symbol}_{item.get('an_dt', '')}")
-            dt_str = item.get("an_dt", "")
-            try:
-                filing_dt = pd.to_datetime(dt_str)
-            except Exception:
-                filing_dt = datetime.now()
-            rows.append({
-                "filing_id": seq_id,
-                "isin": isin,
-                "symbol": symbol,
-                "filing_datetime": filing_dt,
-                "category": str(item.get("desc", "Announcement")),
-                "headline": str(item.get("attchmntText", ""))[:280],
-                "body_text": str(item.get("attchmntText", ""))
-            })
+    def _fetch_announcement_rows(self, days_back: int = 30) -> pd.DataFrame:
+        """Network-only: pulls NSE equity corporate filings in 7-day windows across the
+        last `days_back` days, attaching the instant deterministic base catalyst score."""
+        from datetime import timedelta
+        from ai_brain.catalyst_analyzer import deterministic_catalyst_score
 
-        df_filings = pd.DataFrame(rows)
+        self._warm_cookies()
+        rows = []
+        today = datetime.now()
+        cursor = today - timedelta(days=days_back)
+        while cursor < today:
+            win_end = min(cursor + timedelta(days=7) - timedelta(seconds=1), today)
+            url = (
+                "https://www.nseindia.com/api/corporate-announcements?index=equities"
+                "&from_date=" + cursor.strftime("%d-%m-%Y") +
+                "&to_date=" + win_end.strftime("%d-%m-%Y")
+            )
+            try:
+                resp = self.session.get(url, timeout=20)
+                items = resp.json() if resp.status_code == 200 else []
+                if not isinstance(items, list):
+                    items = []
+            except Exception:
+                items = []
+
+            for item in items:
+                symbol = str(item.get("symbol", "")).strip()
+                isin = str(item.get("isin", "")).strip()
+                seq_id = str(item.get("seq_id") or f"{symbol}_{item.get('an_dt', '')}")
+                dt_str = item.get("an_dt", "")
+                try:
+                    filing_dt = pd.to_datetime(dt_str)
+                except Exception:
+                    filing_dt = datetime.now()
+                headline = str(item.get("attchmntText", ""))[:280]
+                body_text = str(item.get("attchmntText", ""))
+                rows.append({
+                    "filing_id": seq_id,
+                    "isin": isin,
+                    "symbol": symbol,
+                    "filing_datetime": filing_dt,
+                    "category": str(item.get("desc", "Announcement")),
+                    "headline": headline,
+                    "body_text": body_text,
+                    "ai_catalyst_score": deterministic_catalyst_score(body_text),
+                    "ai_summary": "",
+                })
+            cursor = win_end + timedelta(seconds=1)
+            self._warm_cookies()
+
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows).drop_duplicates(subset=["filing_id"], keep="last")
+
+    def _insert_filings(self, df_filings: pd.DataFrame) -> int:
+        """Deterministic single-writer DuckDB batch insert of parsed filings."""
         con = get_connection()
         con.register("temp_filings", df_filings)
         con.execute("""
-            INSERT INTO corporate_filings (filing_id, isin, symbol, filing_datetime, category, headline, body_text)
-            SELECT 
+            INSERT INTO corporate_filings (filing_id, isin, symbol, filing_datetime, category, headline, body_text, ai_catalyst_score, ai_summary)
+            SELECT
                 COALESCE(f.filing_id, f.symbol || '_' || CAST(f.filing_datetime AS VARCHAR)),
                 COALESCE(NULLIF(f.isin, ''), i.isin),
                 f.symbol,
                 f.filing_datetime,
                 f.category,
                 f.headline,
-                f.body_text
+                f.body_text,
+                COALESCE(f.ai_catalyst_score, 0.0),
+                COALESCE(f.ai_summary, '')
             FROM temp_filings f
             LEFT JOIN instruments i ON i.symbol = f.symbol
             WHERE COALESCE(NULLIF(f.isin, ''), i.isin) IS NOT NULL
@@ -132,3 +154,10 @@ class NSEBSEFetcher:
         """)
         con.close()
         return len(df_filings)
+
+    def sync_recent_corporate_announcements(self, days_back: int = 30) -> int:
+        """Full sync: fetch 7-day windows of NSE corporate filings + store to DuckDB."""
+        df_filings = self._fetch_announcement_rows(days_back=days_back)
+        if df_filings.empty:
+            return 0
+        return self._insert_filings(df_filings)

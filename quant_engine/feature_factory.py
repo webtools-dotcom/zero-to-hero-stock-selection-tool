@@ -62,6 +62,7 @@ def build_point_in_time_features(as_of_date: str) -> pd.DataFrame:
     market_df["ema_10"] = g["close"].transform(lambda x: x.ewm(span=10, adjust=False).mean())
     market_df["ema_21"] = g["close"].transform(lambda x: x.ewm(span=21, adjust=False).mean())
     market_df["ema_50"] = g["close"].transform(lambda x: x.ewm(span=50, adjust=False).mean())
+    market_df["ema_65"] = g["close"].transform(lambda x: x.ewm(span=65, adjust=False).mean())
     market_df["sma_200"] = g["close"].transform(lambda x: x.rolling(200, min_periods=40).mean())
 
     tr = np.maximum(
@@ -148,11 +149,11 @@ def build_point_in_time_features(as_of_date: str) -> pd.DataFrame:
         snap["delta_opm"] = 0.0
         snap["is_8q_high_ebitda"] = False
 
-    snap["loss_to_profit"] = snap["loss_to_profit"].fillna(False)
+    snap["loss_to_profit"] = snap["loss_to_profit"].astype("boolean").fillna(False).astype(bool)
     snap["pat_yoy_pct"] = snap["pat_yoy_pct"].fillna(0.0)
     snap["sales_yoy_pct"] = snap["sales_yoy_pct"].fillna(0.0)
     snap["delta_opm"] = snap["delta_opm"].fillna(0.0)
-    snap["is_8q_high_ebitda"] = snap["is_8q_high_ebitda"].fillna(False)
+    snap["is_8q_high_ebitda"] = snap["is_8q_high_ebitda"].astype("boolean").fillna(False).astype(bool)
 
     snap = apply_anti_scam_and_liquidity_flags(snap)
     snap = compute_trade_levels_vectorized(snap)
@@ -179,24 +180,19 @@ def compute_and_store_daily_scores(as_of_date: str) -> pd.DataFrame:
         "dormancy_score", "dvm_quality_score", "rs_percentile",
         "vcp_coil_score", "sector_sympathy_score", "entry_trigger",
         "pullback_zone", "max_chase_price", "stop_loss", "risk_pct",
-        "target_1", "target_2", "trailing_sl_ema50"
+        "emergency_intraday_sl",
+        "target_1", "target_2", "trailing_sl_ema50", "runner_trail_ema65"
     ]
     to_save = snap[cols].copy()
+    col_sql = ", ".join(cols)
     con = get_connection()
     con.register("temp_scores", to_save)
-    con.execute("""
-        INSERT INTO daily_quant_scores
-        SELECT * FROM temp_scores
+    update_sql = ",\n            ".join(f"{c} = EXCLUDED.{c}" for c in cols if c not in ("isin", "trade_date"))
+    con.execute(f"""
+        INSERT INTO daily_quant_scores ({col_sql})
+        SELECT {col_sql} FROM temp_scores
         ON CONFLICT (isin, trade_date) DO UPDATE SET
-            mode_a_score = EXCLUDED.mode_a_score,
-            mode_b_score = EXCLUDED.mode_b_score,
-            master_score = EXCLUDED.master_score,
-            primary_mode = EXCLUDED.primary_mode,
-            entry_trigger = EXCLUDED.entry_trigger,
-            stop_loss = EXCLUDED.stop_loss,
-            target_1 = EXCLUDED.target_1,
-            target_2 = EXCLUDED.target_2,
-            trailing_sl_ema50 = EXCLUDED.trailing_sl_ema50;
+            {update_sql};
     """)
     con.close()
     return snap

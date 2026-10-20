@@ -1,8 +1,16 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
 import duckdb
 from config import DB_PATH
 
-def get_connection(read_only: bool = False) -> duckdb.DuckDBPyConnection:
-    return duckdb.connect(DB_PATH, read_only=read_only)
+def get_connection(read_only: bool = False, memory_limit: str = None) -> duckdb.DuckDBPyConnection:
+    con = duckdb.connect(DB_PATH, read_only=read_only)
+    if memory_limit:
+        con.execute(f"SET memory_limit='{memory_limit}'")
+        con.execute("SET threads=1")
+    return con
 
 def init_db():
     con = get_connection(read_only=False)
@@ -104,12 +112,25 @@ def init_db():
         max_chase_price DOUBLE,
         stop_loss DOUBLE,
         risk_pct DOUBLE,
+        emergency_intraday_sl DOUBLE,
         target_1 DOUBLE,
         target_2 DOUBLE,
         trailing_sl_ema50 DOUBLE,
+        runner_trail_ema65 DOUBLE,
+        live_price DOUBLE,
+        live_price_date DATE,
+        live_updated_at TIMESTAMP,
         PRIMARY KEY (isin, trade_date)
     );
     """)
+    try:
+        con.execute("ALTER TABLE daily_quant_scores ADD COLUMN IF NOT EXISTS runner_trail_ema65 DOUBLE;")
+        con.execute("ALTER TABLE daily_quant_scores ADD COLUMN IF NOT EXISTS emergency_intraday_sl DOUBLE;")
+        con.execute("ALTER TABLE daily_quant_scores ADD COLUMN IF NOT EXISTS live_price DOUBLE;")
+        con.execute("ALTER TABLE daily_quant_scores ADD COLUMN IF NOT EXISTS live_price_date DATE;")
+        con.execute("ALTER TABLE daily_quant_scores ADD COLUMN IF NOT EXISTS live_updated_at TIMESTAMP;")
+    except Exception:
+        pass
     con.close()
 
 if __name__ == "__main__":

@@ -18,14 +18,23 @@ def compute_trade_levels_vectorized(df: pd.DataFrame) -> pd.DataFrame:
     out["pullback_zone"] = "₹" + ema10_low.astype(str) + " – ₹" + out["entry_trigger"].astype(str)
     out["max_chase_price"] = np.round(out["entry_trigger"] + (1.2 * atr), 2)
 
-    raw_sl = np.minimum(out["low_5d_min"], close - (1.8 * atr))
-    sl_pct = ((out["entry_trigger"] - raw_sl) / out["entry_trigger"]).clip(lower=0.04, upper=0.09)
+    # Institutional stop calibration: volatile small-caps (< ₹5,000 Cr) tolerate up to 10%
+    # risk (2.2 x ATR below the 5-day low) to survive operator wick shakeouts; everyone else
+    # stays at 9% (1.8 x ATR). A -12.5% intraday catastrophe guard sits below entry always.
+    small_caps = (out["market_cap_cr"].fillna(0.0) < 5000.0).to_numpy()
+    atr_mult = np.where(small_caps, 2.2, 1.8)
+    sl_cap = np.where(small_caps, 0.10, 0.09)
+    raw_sl = np.minimum(out["low_5d_min"], close - (atr_mult * atr))
+    sl_pct = ((out["entry_trigger"] - raw_sl) / out["entry_trigger"]).clip(lower=0.04)
+    sl_pct = np.minimum(sl_pct, sl_cap)
     out["stop_loss"] = np.round(out["entry_trigger"] * (1.0 - sl_pct), 2)
     out["risk_pct"] = np.round(sl_pct * 100.0, 2)
+    out["emergency_intraday_sl"] = np.round(out["entry_trigger"] * 0.875, 2)
 
     risk_per_share = out["entry_trigger"] - out["stop_loss"]
     out["target_1"] = np.round(out["entry_trigger"] + (2.5 * risk_per_share), 2)
     out["target_2"] = np.round(out["entry_trigger"] + (5.0 * risk_per_share), 2)
     out["trailing_sl_ema50"] = np.round(out["ema_50"], 2)
+    out["runner_trail_ema65"] = np.round(out["ema_65"], 2)
 
     return out

@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+.playwright-mcp/
+*.duckdb.wal
+local_data/*.wal
+local_data/*.tmp
+.DS_Store
+Thumbs.db
+mobile_verify_final_clean.png

@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
 from datetime import datetime, timedelta
 from data_engine.db_manager import init_db, get_connection
 from data_engine.upstox_client import UpstoxClient
@@ -16,26 +20,37 @@ def run_daily_eod_pipeline(days_back: int = 5):
 
     fetcher = NSEBSEFetcher()
     today = datetime.now()
-    synced_days = 0
+    synced_dates = []
     for offset in range(days_back, -1, -1):
         dt = today - timedelta(days=offset)
         if dt.weekday() < 5:  # Monday–Friday
             rows = fetcher.sync_bhavcopy_to_db(dt)
-            if rows > 0:
-                synced_days += 1
+            if rows >= 1000:
+                synced_dates.append(dt.date())
                 print(f"[{dt.strftime('%Y-%m-%d')}] Synced {rows} equities with NSE Delivery Bhavcopy.")
 
     ann_count = fetcher.sync_recent_corporate_announcements()
     print(f"Synced {ann_count} recent NSE corporate announcements.")
 
     con = get_connection()
-    latest_date = con.execute("SELECT MAX(trade_date) FROM daily_market").fetchone()[0]
+    if synced_dates:
+        latest_date = max(synced_dates)
+    else:
+        latest_date = con.execute("""
+            SELECT trade_date FROM daily_market
+            GROUP BY trade_date
+            HAVING COUNT(*) >= 1000
+            ORDER BY trade_date DESC
+            LIMIT 1
+        """).fetchone()[0]
     con.close()
 
     if latest_date:
         print(f"Computing Mode A, Mode B, and Master Quant Scores for {latest_date}...")
         compute_and_store_daily_scores(str(latest_date))
         print("Daily EOD Pipeline completed successfully.")
+    else:
+        print("No complete bhavcopy session available; skipping rescore.")
 
 if __name__ == "__main__":
     run_daily_eod_pipeline(days_back=10)

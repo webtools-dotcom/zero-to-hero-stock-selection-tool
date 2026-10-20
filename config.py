@@ -12,16 +12,17 @@ DB_PATH = str(DATA_DIR / "alpha_terminal.duckdb")
 
 # Upstox Configuration
 UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "")
-UPSTOX_INSTRUMENTS_URL = "[https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz](https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz)"
-UPSTOX_BASE_URL = "[https://api.upstox.com/v2](https://api.upstox.com/v2)"
+UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz"
+UPSTOX_BASE_URL = "https://api.upstox.com/v2"
 
-# LLM Configuration
+# LLM Configuration (3.6/3.5-flash = only 20 req/day free tier; flash-lite has a separate, larger pool)
 DEFAULT_LLM_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "gemini")
-DEFAULT_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "gemini/gemini-2.5-flash")
+DEFAULT_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "gemini/gemini-3.5-flash-lite")
 
 SUPPORTED_MODELS = {
-    "Gemini 2.5 Pro (Deep Reasoning)": ("gemini", "gemini/gemini-2.5-pro"),
-    "Gemini 2.5 Flash (Fast Daily Scan)": ("gemini", "gemini/gemini-2.5-flash"),
+    "Gemini 3.5 Flash-Lite (Free Tier Daily Scan)": ("gemini", "gemini/gemini-3.5-flash-lite"),
+    "Gemini 3.6 Flash (20 req/day Free Tier)": ("gemini", "gemini/gemini-3.6-flash"),
+    "Gemini 3.1 Flash-Lite (Backup)": ("gemini", "gemini/gemini-3.1-flash-lite"),
     "Groq Llama-3.3-70B Versatile": ("groq", "groq/llama-3.3-70b-versatile"),
     "Groq DeepSeek-R1 Distill 70B": ("groq", "groq/deepseek-r1-distill-llama-70b"),
     "OpenRouter Auto": ("openrouter", "openrouter/auto"),

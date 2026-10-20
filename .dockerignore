@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+.playwright-mcp
+.env
+.env.*
+!.env.example
+local_data/*.wal
+local_data/*.tmp
+mobile/__pycache__
