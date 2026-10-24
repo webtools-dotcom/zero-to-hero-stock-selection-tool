@@ -1,3 +1,4 @@
+import hmac
 import math
 import os
 import re
@@ -23,7 +24,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from config import DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, SUPPORTED_MODELS, UPSTOX_ACCESS_TOKEN
+from config import DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, EOD_SYNC_TOKEN, SUPPORTED_MODELS, UPSTOX_ACCESS_TOKEN
 from data_engine.db_manager import get_connection, init_db
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -689,7 +690,12 @@ def live_refresh(
 
 
 @app.post("/api/eod-sync")
-def eod_sync():
+def eod_sync(x_sync_token: Optional[str] = Header(default=None, alias="X-Sync-Token")):
+    # Manual syncs scrape NSE/Screener; an open endpoint lets anyone get the server's IP blocked
+    if not EOD_SYNC_TOKEN:
+        raise HTTPException(status_code=403, detail="Manual EOD sync is disabled (EOD_SYNC_TOKEN not set on server).")
+    if not hmac.compare_digest((x_sync_token or "").strip().encode(), EOD_SYNC_TOKEN.encode()):
+        raise HTTPException(status_code=401, detail="Wrong or missing sync token. Save it in My Vault.")
     try:
         result = _run_eod(3)
     except Exception as exc:

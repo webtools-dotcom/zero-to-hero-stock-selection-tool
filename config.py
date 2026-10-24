@@ -15,6 +15,9 @@ UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "")
 UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz"
 UPSTOX_BASE_URL = "https://api.upstox.com/v2"
 
+# Secret required to trigger POST /api/eod-sync manually (unset = manual sync disabled; the scheduler still runs)
+EOD_SYNC_TOKEN = os.getenv("EOD_SYNC_TOKEN", "")
+
 # LLM Configuration (3.6/3.5-flash = only 20 req/day free tier; flash-lite has a separate, larger pool)
 DEFAULT_LLM_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "gemini")
 DEFAULT_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "gemini/gemini-3.5-flash-lite")

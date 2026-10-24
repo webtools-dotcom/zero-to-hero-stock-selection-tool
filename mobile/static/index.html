@@ -424,6 +424,12 @@
       </div>
       <p class="text-[9px] leading-relaxed text-[#718096] mt-2">Used only for your own AI chat calls. Leave blank to get the deterministic quant plan without AI commentary.</p>
 
+      <label class="field-label mt-3" for="vSync">EOD Sync Token (owner only)</label>
+      <div class="input-wrap">
+        <input id="vSync" class="input pr-12" type="password" autocomplete="off" placeholder="Server's EOD_SYNC_TOKEN, for manual syncs" />
+        <button class="input-eye" data-eye="vSync" aria-label="Show or hide sync token">👁</button>
+      </div>
+
       <button id="saveVaultBtn" class="save-btn mt-4">✅ Save My Keys to Phone</button>
       <div class="grid grid-cols-2 gap-2.5 mt-2.5">
         <button id="installBtn" class="ghost-btn hidden">📲 Install App</button>
@@ -523,6 +529,7 @@
       provider: localStorage.getItem('alpha_llm_provider') || 'gemini',
       model: localStorage.getItem('alpha_llm_model') || 'gemini/gemini-3.5-flash-lite',
       key: localStorage.getItem('alpha_llm_key') || '',
+      sync: localStorage.getItem('alpha_sync_token') || '',
       risk: parseInt(localStorage.getItem('alpha_risk_rupees') || '2000', 10) || 2000
     };
   }
@@ -811,7 +818,7 @@
     runEod._running = true;
     showOverlay('Running EOD Sync', 'NSE bhavcopy delivery + filings + full Mode A/B rescore. Keep this screen open.');
     try {
-      const res = await fetch(api('/api/eod-sync'), { method: 'POST' });
+      const res = await fetch(api('/api/eod-sync'), { method: 'POST', headers: { 'X-Sync-Token': vault().sync } });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'EOD sync failed');
       hideOverlay();
@@ -978,6 +985,7 @@
     $('#vProvider').value = v.provider;
     populateModels(v.provider, v.model);
     $('#vKey').value = v.key;
+    $('#vSync').value = v.sync;
     updateVaultStatus();
   }
 
@@ -1008,6 +1016,9 @@
     else localStorage.removeItem('alpha_upstox_token');
     if (key) localStorage.setItem('alpha_llm_key', key);
     else localStorage.removeItem('alpha_llm_key');
+    const sync = $('#vSync').value.trim();
+    if (sync) localStorage.setItem('alpha_sync_token', sync);
+    else localStorage.removeItem('alpha_sync_token');
     localStorage.setItem('alpha_llm_provider', provider);
     localStorage.setItem('alpha_llm_model', model);
     localStorage.setItem('alpha_risk_rupees', String(risk));
@@ -1018,7 +1029,7 @@
 
   function clearVault() {
     if (!confirm('Clear your Upstox token and LLM key from this phone?')) return;
-    ['alpha_upstox_token', 'alpha_llm_key'].forEach((key) => localStorage.removeItem(key));
+    ['alpha_upstox_token', 'alpha_llm_key', 'alpha_sync_token'].forEach((key) => localStorage.removeItem(key));
     updateVaultStatus();
     toast('Keys cleared from this phone');
   }
