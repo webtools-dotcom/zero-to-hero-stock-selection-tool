@@ -361,6 +361,7 @@
     </div>
     <div id="statusSummary" class="summary-strip no-scrollbar mt-3"></div>
     <div id="cards" class="space-y-4 mt-3.5"></div>
+    <p class="text-[9px] leading-relaxed text-[#718096] mt-4">Educational research tool, not investment advice. Picks and levels are generated automatically from public data and may be wrong; the author is not a SEBI-registered adviser. Trade at your own risk.</p>
   </section>
 
   <section id="tab-chat" class="tab-panel">
@@ -788,7 +789,7 @@
     try {
       const res = await fetch(api('/api/live-refresh?mode=' + encodeURIComponent(state.mode) + '&top_n=' + state.topN + '&risk_rupees=' + encodeURIComponent(v.risk)), {
         method: 'POST',
-        headers: { 'X-Upstox-Token': v.token }
+        headers: { 'X-Upstox-Token': v.token, 'X-Sync-Token': v.sync }
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Live refresh failed');

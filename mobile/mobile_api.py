@@ -603,15 +603,22 @@ def picks(
     return _build_picks(mode=mode, top_n=top_n, risk_rupees=risk_rupees)
 
 
+def _is_owner(sync_token: Optional[str]) -> bool:
+    """True when the request carries the server's EOD_SYNC_TOKEN (always False if it is unset)."""
+    return bool(EOD_SYNC_TOKEN) and hmac.compare_digest((sync_token or "").strip().encode(), EOD_SYNC_TOKEN.encode())
+
+
 @app.post("/api/live-refresh")
 def live_refresh(
     mode: str = Query(default="MASTER"),
     top_n: int = Query(default=10, ge=1, le=25),
     risk_rupees: float = Query(default=2000, gt=0, le=10000000),
     x_upstox_token: Optional[str] = Header(default=None, alias="X-Upstox-Token"),
+    x_sync_token: Optional[str] = Header(default=None, alias="X-Sync-Token"),
 ):
     mode = _mode(mode)
-    token = (x_upstox_token or "").strip() or UPSTOX_ACCESS_TOKEN
+    # Only the owner may fall back to the server's own Upstox token; visitors must bring theirs
+    token = (x_upstox_token or "").strip() or (UPSTOX_ACCESS_TOKEN if _is_owner(x_sync_token) else "")
     if not token:
         raise HTTPException(status_code=400, detail="No Upstox token. Save your token in My Vault.")
 
@@ -694,7 +701,7 @@ def eod_sync(x_sync_token: Optional[str] = Header(default=None, alias="X-Sync-To
     # Manual syncs scrape NSE/Screener; an open endpoint lets anyone get the server's IP blocked
     if not EOD_SYNC_TOKEN:
         raise HTTPException(status_code=403, detail="Manual EOD sync is disabled (EOD_SYNC_TOKEN not set on server).")
-    if not hmac.compare_digest((x_sync_token or "").strip().encode(), EOD_SYNC_TOKEN.encode()):
+    if not _is_owner(x_sync_token):
         raise HTTPException(status_code=401, detail="Wrong or missing sync token. Save it in My Vault.")
     try:
         result = _run_eod(3)
@@ -726,6 +733,10 @@ def chat(
     model = (x_llm_model or DEFAULT_LLM_MODEL).strip()
     if "/" not in model:
         model = f"{provider}/{model}"
+    # The model header picks litellm's backend; keep it on the chosen hosted provider so a
+    # crafted value (e.g. "ollama/..." or "huggingface/...") can't route calls to other hosts
+    if not model.startswith(f"{provider}/"):
+        raise HTTPException(status_code=400, detail=f"Model must be a {provider}/... model.")
     api_key = (x_llm_key or "").strip()
     chat_mode, chat_top_n, price_cap = parse_query_intent(payload.user_query, payload.top_n)
     df_picks = None

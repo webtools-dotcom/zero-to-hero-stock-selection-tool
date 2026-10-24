@@ -192,9 +192,13 @@ def run_time_machine_validation(as_of_date: str, mode: str = "A", top_n: int = 1
     }[mode]
     score_col = SCORE_COLS[mode]
     picks = snap[eligible].sort_values(score_col, ascending=False).head(top_n).reset_index(drop=True)
+    return evaluate_picks(picks, as_of_date, score_col)
+
+
+def evaluate_picks(picks: pd.DataFrame, as_of_date: str, score_col: str) -> pd.DataFrame:
+    """Simulates fill + 2-part plan for each ranked pick using only sessions after `as_of_date`."""
     if picks.empty:
         return pd.DataFrame()
-
     con = get_connection()
     results = []
     as_of = pd.to_datetime(as_of_date).date()
@@ -260,16 +264,63 @@ def run_time_machine_validation(as_of_date: str, mode: str = "A", top_n: int = 1
     con.close()
     return pd.DataFrame(results)
 
+
+def universe_return_90d(as_of_date: str) -> float:
+    """Equal-weight benchmark: next-open to ~90-day close return of every liquid stock
+    (20d median turnover >= ₹15 Lakhs) on `as_of_date`, i.e. what a random pick would have made."""
+    con = get_connection(read_only=True)
+    val = con.execute("""
+        WITH m AS (
+            SELECT trade_date, turnover_cr,
+                   LEAD(open, 1) OVER w AS entry, LEAD(close, 63) OVER w AS exit90,
+                   MEDIAN(turnover_cr) OVER (PARTITION BY isin ORDER BY trade_date ROWS 19 PRECEDING) AS liq
+            FROM daily_market
+            WINDOW w AS (PARTITION BY isin ORDER BY trade_date)
+        )
+        SELECT AVG((exit90 / entry - 1) * 100) FROM m
+        WHERE trade_date = (SELECT MAX(trade_date) FROM daily_market WHERE trade_date <= CAST(? AS DATE))
+          AND liq >= 0.15 AND entry > 0 AND exit90 IS NOT NULL
+    """, [as_of_date]).fetchone()[0]
+    con.close()
+    return float(val) if val is not None else np.nan
+
+
+def run_walk_forward(start: str, end: str, mode: str = "A", top_n: int = 10) -> pd.DataFrame:
+    """Runs the time machine every Monday from `start` to `end` and tags each pick with the
+    universe benchmark, so a change is judged on hundreds of trades instead of one date."""
+    frames = []
+    for d in pd.date_range(start, end, freq="W-MON").strftime("%Y-%m-%d"):
+        res = run_time_machine_validation(d, mode, top_n)
+        if not res.empty:
+            res["As_Of"] = d
+            res["Universe_90D_%"] = universe_return_90d(d)
+            frames.append(res)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AlphaSniper Point-in-Time Time Machine Backtester")
-    parser.add_argument("--date", type=str, required=True, help="Historical test date YYYY-MM-DD")
+    parser.add_argument("--date", type=str, help="Historical test date YYYY-MM-DD")
+    parser.add_argument("--start", type=str, help="Walk-forward start date (weekly Mondays to --end)")
+    parser.add_argument("--end", type=str, help="Walk-forward end date")
     parser.add_argument("--mode", type=str, default="A", choices=["A", "B", "MASTER"])
     parser.add_argument("--top", type=int, default=10)
     args = parser.parse_args()
+    if not args.date and not (args.start and args.end):
+        parser.error("pass --date, or --start and --end")
 
-    df_res = run_time_machine_validation(args.date, args.mode, args.top)
-    print(f"\n=== TIME MACHINE RESULTS AS OF {args.date} (MODE: {args.mode}) ===")
-    print(df_res.to_string(index=False))
+    if args.date:
+        df_res = run_time_machine_validation(args.date, args.mode, args.top)
+        print(f"\n=== TIME MACHINE RESULTS AS OF {args.date} (MODE: {args.mode}) ===")
+        print(df_res.to_string(index=False))
+    else:
+        df_res = run_walk_forward(args.start, args.end, args.mode, args.top)
+        print(f"\n=== WALK-FORWARD {args.start} to {args.end} (MODE: {args.mode}) ===")
+        if not df_res.empty:
+            filled = df_res.dropna(subset=["Trailing_Runner_Return_%"])
+            excess = filled["Return_90D_%"] - filled["Universe_90D_%"]
+            print(f"{df_res['As_Of'].nunique()} dates | mean 90D excess vs equal-weight universe: "
+                  f"{excess.mean():.2f}% (picks beat it {(excess > 0).mean() * 100:.0f}% of the time)")
     if not df_res.empty and "Trailing_Runner_Return_%" in df_res:
         traded = df_res["Trailing_Runner_Return_%"].dropna()
         print(f"\nFilled {len(traded)}/{len(df_res)} | net plan return mean {traded.mean():.2f}% "
