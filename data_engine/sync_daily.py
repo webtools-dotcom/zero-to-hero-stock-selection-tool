@@ -53,4 +53,8 @@ def run_daily_eod_pipeline(days_back: int = 5):
         print("No complete bhavcopy session available; skipping rescore.")
 
 if __name__ == "__main__":
-    run_daily_eod_pipeline(days_back=10)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--days-back", type=int, default=10,
+                        help="Calendar days of NSE Bhavcopy to (re)sync; use ~550 to load real delivery history")
+    run_daily_eod_pipeline(days_back=parser.parse_args().days_back)

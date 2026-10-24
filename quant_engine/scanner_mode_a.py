@@ -14,12 +14,13 @@ def score_mode_a(df: pd.DataFrame) -> pd.DataFrame:
     # 1. Free-Float Delivery Absorption (35 pts)
     float_shares = out["public_float_shares"].replace(0, np.nan).fillna(out["volume"] * 25).clip(lower=50000)
     out["float_absorption_10d_pct"] = ((out["deliv_10d_sum"] / float_shares) * 100.0).clip(0.0, 25.0)
-    float_pts = np.interp(out["float_absorption_10d_pct"], [1.0, 7.5], [0.0, 20.0])
+    # Missing (un-synced) delivery stays NaN in the stored columns but earns 0 points
+    float_pts = np.interp(out["float_absorption_10d_pct"].fillna(0.0), [1.0, 7.5], [0.0, 20.0])
     unknown_fundamentals = (out["public_float_shares"] <= 0) & (out["market_cap_cr"] <= 0)
     float_pts = np.minimum(float_pts, np.where(unknown_fundamentals, 8.0, 20.0))
 
     out["delivery_spike_mult"] = (out["deliv_5d_mean"] / out["deliv_60d_median"].clip(lower=100)).clip(0.0, 20.0)
-    spike_pts = np.interp(out["delivery_spike_mult"], [1.5, 6.0], [0.0, 15.0])
+    spike_pts = np.interp(out["delivery_spike_mult"].fillna(0.0), [1.5, 6.0], [0.0, 15.0])
     deliv_total_pts = float_pts + spike_pts
 
     # 2. Turnaround & Operating Leverage Velocity (30 pts)

@@ -4,10 +4,34 @@ from data_engine.db_manager import get_connection
 from quant_engine.anti_scam_filter import apply_anti_scam_and_liquidity_flags
 from quant_engine.trade_architect import compute_trade_levels_vectorized
 
-def build_point_in_time_features(as_of_date: str) -> pd.DataFrame:
+def market_red_days(market_df: pd.DataFrame, n: int = 5) -> set:
+    """Last `n` sessions where the equal-weighted average stock return (ret_1d) was <= -0.3%."""
+    mkt_daily = market_df.groupby("trade_date")["ret_1d"].mean()
+    return set(mkt_daily[mkt_daily <= -0.003].tail(n).index)
+
+def neutralize_snapshot_fundamentals(snap: pd.DataFrame) -> pd.DataFrame:
+    """
+    `instruments` holds TODAY's ratios, pledge and surveillance stage, so using them on a past
+    date leaks the future. Replace them with constants that score 0 points for every stock, and
+    rebuild market cap from the point-in-time close.
+    """
+    out = snap.copy()
+    out["market_cap_cr"] = (out["total_shares"].fillna(0) * out["close"]) / 1e7
+    out["roce_pct"] = 0.0
+    out["roe_pct"] = 0.0
+    out["debt_to_equity"] = 1.2
+    out["cfo_to_pat_ratio"] = 0.5
+    out["pledge_pct"] = 0.0
+    out["pledge_change_qoq"] = 0.0
+    out["promoter_change_qoq"] = 0.0
+    out["asm_gsm_stage"] = "NONE"
+    return out
+
+def build_point_in_time_features(as_of_date: str, historical: bool = False) -> pd.DataFrame:
     """
     Extracts point-in-time market, delivery, quarterly fundamental, and catalyst features
-    strictly on or before `as_of_date` (zero look-ahead bias).
+    strictly on or before `as_of_date`. Pass `historical=True` for past dates (backtests) so the
+    current-snapshot fundamentals in `instruments` are neutralized instead of leaking the future.
     """
     con = get_connection()
 
@@ -26,7 +50,7 @@ def build_point_in_time_features(as_of_date: str) -> pd.DataFrame:
 
     inst_df = con.execute("""
         SELECT isin, symbol, company_name, sector, sub_industry, market_cap_cr,
-               public_float_shares, promoter_pct, promoter_change_qoq,
+               total_shares, public_float_shares, promoter_pct, promoter_change_qoq,
                pledge_pct, pledge_change_qoq, roce_pct, roe_pct,
                debt_to_equity, cfo_to_pat_ratio, asm_gsm_stage
         FROM instruments
@@ -35,7 +59,10 @@ def build_point_in_time_features(as_of_date: str) -> pd.DataFrame:
     qtr_df = con.execute("""
         SELECT isin, quarter_end, sales_cr, op_profit_cr, opm_pct, net_profit_cr, eps
         FROM quarterly_results
-        WHERE filing_date <= CAST(? AS DATE)
+        -- Stored filing dates are estimates (quarter end + ~40d). SEBI LODR allows 45 days
+        -- for quarterly results and 60 for Q4 (March), so never treat a result as known earlier.
+        WHERE GREATEST(filing_date, quarter_end + to_days(CASE WHEN month(quarter_end) = 3 THEN 60 ELSE 45 END))
+              <= CAST(? AS DATE)
         ORDER BY isin, quarter_end ASC
     """, [as_of_date]).df()
 
@@ -48,13 +75,13 @@ def build_point_in_time_features(as_of_date: str) -> pd.DataFrame:
     """, [as_of_date, as_of_date]).df()
     con.close()
 
-    # Compute Equal-Weighted Market Index Return for Red-Day Resilience
-    mkt_daily = market_df.groupby("trade_date")["close"].pct_change().groupby(market_df["trade_date"]).mean()
-    red_dates = set(mkt_daily[mkt_daily <= -0.003].tail(5).index)
+    # NULL delivery = not synced from NSE Bhavcopy yet; keep it missing, never guess it
+    market_df["delivery_qty"] = pd.to_numeric(market_df["delivery_qty"], errors="coerce").astype("float64")
 
     # Vectorized grouped rolling metrics per stock
     g = market_df.groupby("isin", group_keys=False)
     market_df["ret_1d"] = g["close"].pct_change()
+    red_dates = market_red_days(market_df)
     market_df["ret_20d"] = g["close"].pct_change(20)
     market_df["ret_60d"] = g["close"].pct_change(60)
     market_df["ret_120d"] = g["close"].pct_change(120)
@@ -77,9 +104,10 @@ def build_point_in_time_features(as_of_date: str) -> pd.DataFrame:
     market_df["atr_14"] = g["tr"].transform(lambda x: x.rolling(14, min_periods=5).mean())
     market_df["atr_20"] = g["tr"].transform(lambda x: x.rolling(20, min_periods=5).mean())
 
-    market_df["deliv_10d_sum"] = g["delivery_qty"].transform(lambda x: x.rolling(10, min_periods=3).sum())
-    market_df["deliv_5d_mean"] = g["delivery_qty"].transform(lambda x: x.rolling(5, min_periods=2).mean())
-    market_df["deliv_60d_median"] = g["delivery_qty"].transform(lambda x: x.rolling(60, min_periods=10).median())
+    # Full windows of real delivery only; otherwise NaN and Mode A gives no delivery points
+    market_df["deliv_10d_sum"] = g["delivery_qty"].transform(lambda x: x.rolling(10, min_periods=10).sum())
+    market_df["deliv_5d_mean"] = g["delivery_qty"].transform(lambda x: x.rolling(5, min_periods=5).mean())
+    market_df["deliv_60d_median"] = g["delivery_qty"].transform(lambda x: x.rolling(60, min_periods=20).median())
 
     market_df["median_turnover_60d_cr"] = g["turnover_cr"].transform(lambda x: x.rolling(60, min_periods=5).median())
     market_df["median_turnover_20d_cr"] = g["turnover_cr"].transform(lambda x: x.rolling(20, min_periods=5).median())
@@ -110,6 +138,8 @@ def build_point_in_time_features(as_of_date: str) -> pd.DataFrame:
     latest_date_val = market_df["trade_date"].max()
     snap = market_df[market_df["trade_date"] == latest_date_val].copy()
     snap = snap.merge(inst_df, on="isin", how="left")
+    if historical:
+        snap = neutralize_snapshot_fundamentals(snap)
     snap = snap.merge(red_df, on="isin", how="left")
     snap = snap.merge(cat_df, on="isin", how="left")
     snap["red_day_avg_ret"] = snap["red_day_avg_ret"].fillna(0.0)
@@ -159,18 +189,21 @@ def build_point_in_time_features(as_of_date: str) -> pd.DataFrame:
     snap = compute_trade_levels_vectorized(snap)
     return snap
 
-def compute_and_store_daily_scores(as_of_date: str) -> pd.DataFrame:
+def score_point_in_time(as_of_date: str, historical: bool = False) -> pd.DataFrame:
+    """Features + Mode A, Mode B and Master scores in memory (nothing written to DuckDB)."""
     from quant_engine.scanner_mode_a import score_mode_a
     from quant_engine.scanner_mode_b import score_mode_b
     from quant_engine.scanner_master import compute_master_ranking
 
-    snap = build_point_in_time_features(as_of_date)
+    snap = build_point_in_time_features(as_of_date, historical=historical)
+    if snap.empty:
+        return snap
+    return compute_master_ranking(score_mode_b(score_mode_a(snap)))
+
+def compute_and_store_daily_scores(as_of_date: str) -> pd.DataFrame:
+    snap = score_point_in_time(as_of_date)
     if snap.empty:
         return pd.DataFrame()
-
-    snap = score_mode_a(snap)
-    snap = score_mode_b(snap)
-    snap = compute_master_ranking(snap)
 
     cols = [
         "isin", "trade_date", "symbol", "close", "market_cap_cr", "sub_industry",

@@ -173,8 +173,8 @@ class UpstoxClient:
         df_live = pd.DataFrame(rows).drop_duplicates(subset=["isin"], keep="first")
         con.register("temp_live", df_live)
         con.execute("""
-            INSERT INTO daily_market (isin, trade_date, open, high, low, close, volume)
-            SELECT isin, CAST(? AS DATE), open, high, low, close, volume FROM temp_live
+            INSERT INTO daily_market (isin, trade_date, open, high, low, close, volume, delivery_qty, delivery_pct, turnover_cr)
+            SELECT isin, CAST(? AS DATE), open, high, low, close, volume, NULL, NULL, close * volume / 1e7 FROM temp_live
             ON CONFLICT (isin, trade_date) DO UPDATE SET
                 open = EXCLUDED.open,
                 high = EXCLUDED.high,

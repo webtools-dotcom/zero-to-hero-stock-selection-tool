@@ -131,7 +131,16 @@ def init_db():
         con.execute("ALTER TABLE daily_quant_scores ADD COLUMN IF NOT EXISTS live_updated_at TIMESTAMP;")
     except Exception:
         pass
+    scrub_estimated_delivery(con)
     con.close()
+
+def scrub_estimated_delivery(con: duckdb.DuckDBPyConnection) -> None:
+    """Older backfills stored delivery as a flat 45% of volume. NULL those rows so they read as
+    missing (scored 0) instead of real; a later NSE Bhavcopy sync fills in the true values."""
+    con.execute("""
+        UPDATE daily_market SET delivery_qty = NULL, delivery_pct = NULL
+        WHERE delivery_pct = 45.0 AND delivery_qty = FLOOR(volume * 0.45);
+    """)
 
 if __name__ == "__main__":
     init_db()

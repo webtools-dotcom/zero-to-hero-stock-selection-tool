@@ -14,13 +14,6 @@ from data_engine.screener_and_nse_ings import DeepIndianFundamentals
 from data_engine.fundamentals_sync import FundamentalsSync
 
 
-PRIORITY_SEED_TICKERS = [
-    "CUPID", "STLTECH", "HFCL", "TEJASNET", "NETWEB", "E2E", "KAYNES",
-    "PGEL", "SHAKTIPUMP", "TARIL", "GENUSPOWER", "ZENTEC", "GRAVITA",
-    "ANANTRAJ", "WABAG", "NEULANDLAB", "SUZLON", "INOXWIND", "JYOTICNC"
-]
-
-
 def fetch_stock_history(isin: str, symbol: str, nse_key: str, bse_key: str, years: int = 3) -> pd.DataFrame:
     """Pure network fetch of daily OHLCV (thread-safe, NO database access)."""
     end_dt = datetime.now().strftime("%Y-%m-%d")
@@ -63,17 +56,14 @@ def write_candle_batch(frames: list[pd.DataFrame]) -> int:
     all_df = pd.concat(usable, ignore_index=True)
     all_df = all_df.drop_duplicates(subset=["isin", "trade_date"], keep="last")
 
-    # Estimate delivery_qty as 45% of volume only on historical rows where NSE Bhavcopy wasn't synced yet
-    if "delivery_qty" not in all_df.columns:
-        all_df["delivery_qty"] = (all_df["volume"] * 0.45).astype("int64")
-        all_df["delivery_pct"] = 45.0
-        all_df["turnover_cr"] = ((all_df["close"] * all_df["volume"]) / 1e7).round(4)
+    all_df["turnover_cr"] = ((all_df["close"] * all_df["volume"]) / 1e7).round(4)
 
+    # Candle sources carry no delivery data: store NULL (missing) until NSE Bhavcopy supplies it
     con = get_connection()
     con.register("temp_hist", all_df)
     con.execute("""
         INSERT INTO daily_market (isin, trade_date, open, high, low, close, volume, delivery_qty, delivery_pct, turnover_cr)
-        SELECT isin, trade_date, open, high, low, close, volume, delivery_qty, delivery_pct, turnover_cr
+        SELECT isin, trade_date, open, high, low, close, volume, NULL, NULL, turnover_cr
         FROM temp_hist
         ON CONFLICT (isin, trade_date) DO NOTHING;
     """)
@@ -92,11 +82,10 @@ def backfill_stock_history(isin: str, symbol: str, nse_key: str, bse_key: str, y
 
 
 def get_backfill_targets(limit: int) -> pd.DataFrame:
-    """Targets = priority seed tickers first, then the most active stocks
-    (>= 25 Lakhs turnover on the latest NSE Bhavcopy day) by daily turnover."""
+    """Targets = the most active stocks (>= 25 Lakhs turnover on the latest NSE Bhavcopy day).
+    No hand-picked winners: seeding known multibaggers would bias every backtest."""
     con = get_connection()
     latest = con.execute("SELECT MAX(trade_date) FROM daily_market").fetchone()[0]
-    placeholders = ",".join([f"'{s}'" for s in PRIORITY_SEED_TICKERS])
     if latest is None:
         df = con.execute("""
             SELECT isin, symbol, nse_key, bse_key, 0.0 AS turnover_cr
@@ -105,13 +94,12 @@ def get_backfill_targets(limit: int) -> pd.DataFrame:
             LIMIT ?
         """, [limit]).df()
     else:
-        df = con.execute(f"""
+        df = con.execute("""
             SELECT i.isin, i.symbol, i.nse_key, i.bse_key, d.turnover_cr
             FROM instruments i
             JOIN daily_market d ON d.isin = i.isin AND d.trade_date = ?
             WHERE d.turnover_cr >= 0.25
-            ORDER BY CASE WHEN i.symbol IN ({placeholders}) THEN 0 ELSE 1 END,
-                     d.turnover_cr DESC,
+            ORDER BY d.turnover_cr DESC,
                      i.symbol ASC
             LIMIT ?
         """, [latest, limit]).df()
