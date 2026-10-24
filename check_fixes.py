@@ -39,7 +39,7 @@ def check_missing_delivery_scores_zero():
         {**base, "deliv_10d_sum": 1e6, "deliv_5d_mean": 6e5, "deliv_60d_median": 1e5},
     ])
     s = score_mode_a(df)["mode_a_score"]
-    assert s.iloc[0] == 0.0, s.iloc[0]          # missing delivery -> finite score, not NaN
+    assert np.isfinite(s.iloc[0]), s.iloc[0]    # missing delivery -> finite score, not NaN
     assert s.iloc[1] == s.iloc[0], s.iloc[1]    # delivery is display-only: it never moves the score
 
 
@@ -50,8 +50,12 @@ def check_profit_growth_drives_mode_a():
                 deliv_10d_sum=np.nan, deliv_5d_mean=np.nan, deliv_60d_median=np.nan)
     df = pd.DataFrame([{**base, "pat_yoy_pct": 120.0}, {**base, "pat_yoy_pct": 0.0, "loss_to_profit": True}])
     s = score_mode_a(df)["mode_a_score"]
-    assert round(s.iloc[0], 2) == round(20 * 100 / 73, 2), s.iloc[0]   # full growth points
-    assert s.iloc[1] == 0.0, s.iloc[1]                                  # no flip bonus any more
+    # Growth is a percentile rank (1.0 vs 0.5 of 20 pts); the loss-to-profit flip adds nothing
+    assert round(s.iloc[0] - s.iloc[1], 2) == round(10 * 100 / 73, 2), (s.iloc[0], s.iloc[1])
+
+    # Rank scoring: three stocks that all beat the old 120% cap still get distinct scores
+    df3 = pd.DataFrame([{**base, "pat_yoy_pct": g} for g in (150.0, 300.0, 900.0)])
+    assert score_mode_a(df3)["mode_a_score"].round(2).nunique() == 3
 
 
 def check_neutralized_fundamentals():

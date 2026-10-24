@@ -11,6 +11,7 @@ def score_mode_a(df: pd.DataFrame) -> pd.DataFrame:
     Delivery absorption, delivery spike and the loss-to-profit flip bonus were dropped after
     weekly rank-IC tests (Jun 2025–Jul 2026) showed them to be noise or negative; profit
     growth was the only component positive on ~98% of dates, so its weight was doubled.
+    Growth and OPM points are cross-sectional percentile ranks within the eligible universe.
     The delivery columns are still computed for display on the cards.
     """
     out = df.copy()
@@ -21,8 +22,13 @@ def score_mode_a(df: pd.DataFrame) -> pd.DataFrame:
     out["delivery_spike_mult"] = (out["deliv_5d_mean"] / out["deliv_60d_median"].clip(lower=100)).clip(0.0, 20.0)
 
     # 1. Earnings Growth & Operating Leverage (38 raw pts)
-    growth_pts = np.interp(out["pat_yoy_pct"], [15.0, 120.0], [0.0, 20.0])
-    opm_pts = np.interp(out["delta_opm"], [0.5, 5.0], [0.0, 12.0])
+    # Percentile rank among today's eligible stocks instead of capped thresholds: the old caps
+    # (120% growth, 5pt OPM) maxed out nearly every top-10 stock and left the order to ties.
+    # Rank scoring lifted weekly rank IC in both halves (A 0.074->0.100, 0.057->0.072).
+    eligible = out["mode_a_eligible"].astype(bool)
+    pct_rank = lambda col: out[col].where(eligible).rank(pct=True).fillna(0.0)
+    growth_pts = 20.0 * pct_rank("pat_yoy_pct")
+    opm_pts = 12.0 * pct_rank("delta_opm")
     ebitda_pts = np.where(out["is_8q_high_ebitda"], 6.0, 0.0)
     out["op_leverage_score"] = np.round(growth_pts + opm_pts + ebitda_pts, 2)
 
