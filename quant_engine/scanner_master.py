@@ -13,7 +13,7 @@ def compute_master_ranking(df: pd.DataFrame) -> pd.DataFrame:
     out["master_score"] = np.round((max_s + 0.20 * min_s).clip(0.0, 100.0), 2)
     out["primary_mode"] = np.where(
         out["mode_a_score"] >= out["mode_b_score"],
-        "Mode A: Turnaround Sniper",
+        "Mode A: Earnings-Growth Sniper",
         "Mode B: Momentum Compounder"
     )
     return out

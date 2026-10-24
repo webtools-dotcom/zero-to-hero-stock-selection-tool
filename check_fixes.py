@@ -39,8 +39,19 @@ def check_missing_delivery_scores_zero():
         {**base, "deliv_10d_sum": 1e6, "deliv_5d_mean": 6e5, "deliv_60d_median": 1e5},
     ])
     s = score_mode_a(df)["mode_a_score"]
-    assert s.iloc[0] == 0.0, s.iloc[0]          # no delivery data -> no delivery points, not NaN
-    assert s.iloc[1] > 20.0, s.iloc[1]          # real absorption + 6x spike still scores
+    assert s.iloc[0] == 0.0, s.iloc[0]          # missing delivery -> finite score, not NaN
+    assert s.iloc[1] == s.iloc[0], s.iloc[1]    # delivery is display-only: it never moves the score
+
+
+def check_profit_growth_drives_mode_a():
+    base = dict(public_float_shares=1e7, volume=1e5, market_cap_cr=500.0, loss_to_profit=False,
+                delta_opm=0.0, is_8q_high_ebitda=False, catalyst_raw_score=0.0, prior_60d_range_pct=0.5,
+                close=100.0, sma_200=200.0, high_20d=200.0, mode_a_eligible=True,
+                deliv_10d_sum=np.nan, deliv_5d_mean=np.nan, deliv_60d_median=np.nan)
+    df = pd.DataFrame([{**base, "pat_yoy_pct": 120.0}, {**base, "pat_yoy_pct": 0.0, "loss_to_profit": True}])
+    s = score_mode_a(df)["mode_a_score"]
+    assert round(s.iloc[0], 2) == round(20 * 100 / 73, 2), s.iloc[0]   # full growth points
+    assert s.iloc[1] == 0.0, s.iloc[1]                                  # no flip bonus any more
 
 
 def check_neutralized_fundamentals():
@@ -69,6 +80,6 @@ def check_fill_and_costs():
 
 if __name__ == "__main__":
     for check in [check_red_days, check_scrub_estimated_delivery, check_missing_delivery_scores_zero,
-                  check_neutralized_fundamentals, check_fill_and_costs]:
+                  check_profit_growth_drives_mode_a, check_neutralized_fundamentals, check_fill_and_costs]:
         check()
         print("ok", check.__name__)

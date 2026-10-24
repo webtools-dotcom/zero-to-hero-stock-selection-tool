@@ -3,18 +3,21 @@ import pandas as pd
 
 def score_mode_b(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Mode B (0–100 pts): The HFCL High-Velocity Momentum Compounder.
-    1. DVM+ Quality & Earnings Acceleration (30 pts)
-    2. Anti-Gravity Relative Strength (25 pts)
-    3. Technical Coil & Ignition Trigger (30 pts)
-    4. Hot Micro-Sector Sympathy (15 pts)
+    Mode B (0–100 pts, scaled from 110 raw): The HFCL High-Velocity Momentum Compounder.
+    1. DVM+ Quality & Earnings Acceleration (40 raw pts)
+    2. Anti-Gravity Relative Strength (25 raw pts)
+    3. Technical Coil & Ignition Trigger (30 raw pts)
+    4. Hot Micro-Sector Sympathy (15 raw pts)
+
+    Profit growth carries 17 of the DVM points (was 7): it was the only component positive
+    on ~98% of weekly rank-IC dates (Jun 2025–Jul 2026).
     """
     out = df.copy()
 
-    # 1. DVM+ Quality & Growth Acceleration (30 pts)
+    # 1. DVM+ Quality & Growth Acceleration (40 raw pts)
     roce_roe_pts = np.interp(np.maximum(out["roce_pct"], out["roe_pct"]), [10.0, 25.0], [0.0, 10.0])
     debt_cfo_pts = np.interp(out["debt_to_equity"], [0.1, 1.2], [5.0, 0.0]) + np.interp(out["cfo_to_pat_ratio"], [0.5, 1.0], [0.0, 3.0])
-    growth_pts = np.interp(out["pat_yoy_pct"], [10.0, 50.0], [0.0, 7.0]) + np.interp(out["sales_yoy_pct"], [10.0, 30.0], [0.0, 5.0])
+    growth_pts = np.interp(out["pat_yoy_pct"], [10.0, 50.0], [0.0, 17.0]) + np.interp(out["sales_yoy_pct"], [10.0, 30.0], [0.0, 5.0])
     out["dvm_quality_score"] = np.round(roce_roe_pts + debt_cfo_pts + growth_pts, 2)
 
     # 2. Anti-Gravity Relative Strength (25 pts)
@@ -47,6 +50,6 @@ def score_mode_b(df: pd.DataFrame) -> pd.DataFrame:
     sector_rank = sector_mom.rank(pct=True) * 100.0
     out["sector_sympathy_score"] = np.round(np.interp(sector_rank, [50.0, 92.0], [0.0, 15.0]), 2)
 
-    raw_mode_b = out["dvm_quality_score"] + anti_gravity_total + out["vcp_coil_score"] + out["sector_sympathy_score"]
+    raw_mode_b = (out["dvm_quality_score"] + anti_gravity_total + out["vcp_coil_score"] + out["sector_sympathy_score"]) * 100.0 / 110.0
     out["mode_b_score"] = np.where(out["mode_b_eligible"], np.round(raw_mode_b.clip(0.0, 100.0), 2), 0.0)
     return out
