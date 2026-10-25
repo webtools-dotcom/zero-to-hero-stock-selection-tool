@@ -82,8 +82,22 @@ def check_fill_and_costs():
     assert abs(ret + ROUND_TRIP_COST_PCT) < 1e-9, ret
 
 
+def check_paper_trade_status():
+    from backtest.paper_trades import classify
+    assert classify(None)["status"] == "pending"                                       # no session yet
+    no_fill = {"Exit_Detail": "No fill: trigger not hit within 5 sessions"}
+    assert classify({**no_fill, "Sessions_After_Signal": 3})["status"] == "pending"     # window still open
+    assert classify({**no_fill, "Sessions_After_Signal": 5})["status"] == "no_fill"
+    filled = {"Entry_Date": "2026-01-02", "Entry_Price": 100.0, "Return_30D_%": 4.0, "Return_90D_%": 9.0,
+              "Trailing_Runner_Return_%": 3.0, "Sessions_Held": 25}
+    o = classify({**filled, "Exit_Detail": "Runner open at data end"})
+    assert o["status"] == "open" and o["ret_30d"] == 4.0 and o["ret_90d"] is None   # 90d not reached yet
+    assert classify({**filled, "Exit_Detail": "Stop-loss exit on day 6 (daily close)"})["status"] == "closed"
+
+
 if __name__ == "__main__":
     for check in [check_red_days, check_scrub_estimated_delivery, check_missing_delivery_scores_zero,
-                  check_profit_growth_drives_mode_a, check_neutralized_fundamentals, check_fill_and_costs]:
+                  check_profit_growth_drives_mode_a, check_neutralized_fundamentals, check_fill_and_costs,
+                  check_paper_trade_status]:
         check()
         print("ok", check.__name__)

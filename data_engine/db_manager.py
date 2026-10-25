@@ -131,6 +131,37 @@ def init_db():
         con.execute("ALTER TABLE daily_quant_scores ADD COLUMN IF NOT EXISTS live_updated_at TIMESTAMP;")
     except Exception:
         pass
+
+    # Forward paper-trading log: picks are frozen at signal time, outcomes filled in later
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS paper_trades (
+        signal_date DATE,
+        mode VARCHAR,
+        rank INTEGER,
+        isin VARCHAR,
+        symbol VARCHAR,
+        primary_mode VARCHAR,
+        score DOUBLE,
+        close DOUBLE,
+        entry_trigger DOUBLE,
+        max_chase_price DOUBLE,
+        stop_loss DOUBLE,
+        emergency_intraday_sl DOUBLE,
+        target_1 DOUBLE,
+        target_2 DOUBLE,
+        logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status VARCHAR DEFAULT 'pending',
+        entry_date DATE,
+        entry_price DOUBLE,
+        sessions_held INTEGER,
+        ret_30d DOUBLE,
+        ret_90d DOUBLE,
+        plan_return_pct DOUBLE,
+        exit_detail VARCHAR,
+        updated_at TIMESTAMP,
+        PRIMARY KEY (signal_date, mode, isin)
+    );
+    """)
     scrub_estimated_delivery(con)
     con.close()
 

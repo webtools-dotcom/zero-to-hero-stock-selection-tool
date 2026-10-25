@@ -227,6 +227,7 @@ def evaluate_picks(picks: pd.DataFrame, as_of_date: str, score_col: str) -> pd.D
             "Mode": row["primary_mode"],
             "Score": row[score_col],
             "Entry_Trigger": round(entry_trigger_lvl, 2),
+            "Sessions_After_Signal": len(fwd),
         }
         fill = find_fill(fwd, entry_trigger_lvl, max_chase)
         if fill is None:
@@ -253,6 +254,7 @@ def evaluate_picks(picks: pd.DataFrame, as_of_date: str, score_col: str) -> pd.D
             **base,
             "Entry_Date": str(fwd.iloc[0]["trade_date"]),
             "Entry_Price": round(entry_px, 2),
+            "Sessions_Held": len(fwd),
             "Stop_Loss": round(stop_loss, 2),
             "Target_1": round(target_1, 2),
             "Return_30D_%": round(ret_30d, 2),

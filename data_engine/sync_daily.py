@@ -48,6 +48,13 @@ def run_daily_eod_pipeline(days_back: int = 5):
     if latest_date:
         print(f"Computing Mode A, Mode B, and Master Quant Scores for {latest_date}...")
         compute_and_store_daily_scores(str(latest_date))
+        try:  # paper log must never break the EOD sync itself
+            from backtest.paper_trades import log_daily_picks, update_outcomes
+            print(f"Paper log: {log_daily_picks(str(latest_date))} picks frozen for {latest_date}, "
+                  f"{update_outcomes()} open/pending trades re-checked.")
+        except Exception:
+            import traceback
+            traceback.print_exc()
         print("Daily EOD Pipeline completed successfully.")
     else:
         print("No complete bhavcopy session available; skipping rescore.")
