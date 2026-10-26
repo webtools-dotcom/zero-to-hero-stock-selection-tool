@@ -15,8 +15,13 @@ UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "")
 UPSTOX_INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz"
 UPSTOX_BASE_URL = "https://api.upstox.com/v2"
 
+def normalize_sync_token(value: str | None) -> str:
+    """Forgive common paste mistakes: surrounding spaces/quotes and a pasted 'EOD_SYNC_TOKEN=' prefix."""
+    v = (value or "").strip().strip("'\"").strip()
+    return v.removeprefix("EOD_SYNC_TOKEN=").strip().strip("'\"")
+
 # Secret required to trigger POST /api/eod-sync manually (unset = manual sync disabled; the scheduler still runs)
-EOD_SYNC_TOKEN = os.getenv("EOD_SYNC_TOKEN", "")
+EOD_SYNC_TOKEN = normalize_sync_token(os.getenv("EOD_SYNC_TOKEN"))
 
 # LLM Configuration (3.6/3.5-flash = only 20 req/day free tier; flash-lite has a separate, larger pool)
 DEFAULT_LLM_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "gemini")

@@ -24,7 +24,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from config import DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, EOD_SYNC_TOKEN, SUPPORTED_MODELS, UPSTOX_ACCESS_TOKEN
+from config import (DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, EOD_SYNC_TOKEN, SUPPORTED_MODELS,
+                    UPSTOX_ACCESS_TOKEN, normalize_sync_token)
 from data_engine.db_manager import get_connection, init_db
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -605,7 +606,7 @@ def picks(
 
 def _is_owner(sync_token: Optional[str]) -> bool:
     """True when the request carries the server's EOD_SYNC_TOKEN (always False if it is unset)."""
-    return bool(EOD_SYNC_TOKEN) and hmac.compare_digest((sync_token or "").strip().encode(), EOD_SYNC_TOKEN.encode())
+    return bool(EOD_SYNC_TOKEN) and hmac.compare_digest(normalize_sync_token(sync_token).encode(), EOD_SYNC_TOKEN.encode())
 
 
 @app.post("/api/live-refresh")
@@ -702,7 +703,12 @@ def eod_sync(x_sync_token: Optional[str] = Header(default=None, alias="X-Sync-To
     if not EOD_SYNC_TOKEN:
         raise HTTPException(status_code=403, detail="Manual EOD sync is disabled (EOD_SYNC_TOKEN not set on server).")
     if not _is_owner(x_sync_token):
-        raise HTTPException(status_code=401, detail="Wrong or missing sync token. Save it in My Vault.")
+        raise HTTPException(
+            status_code=401,
+            detail=("Sync token not accepted: " + ("none saved in My Vault." if not normalize_sync_token(x_sync_token)
+                    else "it doesn't match the server's EOD_SYNC_TOKEN secret. Both must hold the same value "
+                         "(just the value, without 'EOD_SYNC_TOKEN='). Re-save the Hugging Face secret, then retry.")),
+        )
     try:
         result = _run_eod(3)
     except Exception as exc:
