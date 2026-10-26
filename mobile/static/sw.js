@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'alphasniper-shell-v1';
+const SHELL_CACHE = 'alphasniper-shell-v2';
 const API_CACHE = 'alphasniper-api-v1';
 const SHELL = [
   '/',

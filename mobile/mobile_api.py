@@ -621,7 +621,7 @@ def live_refresh(
     # Only the owner may fall back to the server's own Upstox token; visitors must bring theirs
     token = (x_upstox_token or "").strip() or (UPSTOX_ACCESS_TOKEN if _is_owner(x_sync_token) else "")
     if not token:
-        raise HTTPException(status_code=400, detail="No Upstox token. Save your token in My Vault.")
+        raise HTTPException(status_code=400, detail="No Upstox token. Add it in Settings.")
 
     universe = _active_universe(150)
     if not universe:
@@ -705,7 +705,7 @@ def eod_sync(x_sync_token: Optional[str] = Header(default=None, alias="X-Sync-To
     if not _is_owner(x_sync_token):
         raise HTTPException(
             status_code=401,
-            detail=("Sync token not accepted: " + ("none saved in My Vault." if not normalize_sync_token(x_sync_token)
+            detail=("Sync token not accepted: " + ("none saved in Settings." if not normalize_sync_token(x_sync_token)
                     else "it doesn't match the server's EOD_SYNC_TOKEN secret. Both must hold the same value "
                          "(just the value, without 'EOD_SYNC_TOKEN='). Re-save the Hugging Face secret, then retry.")),
         )
@@ -767,7 +767,7 @@ def chat(
         answer = build_fallback_trade_plan(
             df_picks, mode=chat_mode, top_n=chat_top_n, max_price=price_cap
         )
-        answer = f"{answer}\n\n*No LLM key saved in My Vault; deterministic quant plan served instantly.*"
+        answer = f"{answer}\n\n*No AI key saved in Settings, so this is the plain quant plan.*"
 
     if not isinstance(answer, str) or not answer.strip():
         df_picks = get_top_candidates_df(mode=chat_mode, top_n=chat_top_n, max_price=price_cap)

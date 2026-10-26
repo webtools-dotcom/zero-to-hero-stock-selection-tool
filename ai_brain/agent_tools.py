@@ -59,41 +59,27 @@ def build_fallback_trade_plan(df_picks: pd.DataFrame, mode: str = "MASTER", top_
     if df_picks is None or df_picks.empty:
         return "No scored candidates yet. Click **[Run Daily EOD Sync]** in the sidebar to populate the database."
     n = int(top_n) if top_n else len(df_picks)
-    mode_label = {"A": "Mode A: Turnaround & Multibagger Sniper", "B": "Mode B: High-Velocity Momentum Compounder"}.get(mode, "Master Scan (All Modes)")
-    lines = [
-        f"## 🏛️ Institutional Trade Plan — {mode_label} | Top {n}",
-        f"**Source:** Local Quant Engine (point-in-time levels) — LLM commentary unavailable (free-tier quota/timeout), so grade-A numeric plan is served instantly.",
-    ]
+    mode_label = {"A": "Growth (Mode A)", "B": "Momentum (Mode B)"}.get(mode, "Master")
+    lines = [f"## {mode_label} · top {n}", "Plain quant plan (no AI commentary)."]
     if max_price is not None:
-        lines.append(f"**Price filter:** CMP ≤ ₹{float(max_price):,.2f}")
+        lines.append(f"Price filter: up to ₹{float(max_price):,.2f}")
     lines.append("")
     for rank, (_, r) in enumerate(df_picks.iterrows(), start=1):
-        g = lambda col, dflt="—": (f"{r[col]:,.2f}" if col in r and pd.notna(r[col]) else dflt)
-        h = lambda col, fmt, dflt="—": (fmt.format(float(r[col])) if col in r and pd.notna(r[col]) else dflt)
         try:
             m_pp = re.search(r"([\d.]+)", str(r["pullback_zone"]))
-            zone = (f"₹{float(m_pp.group(1)):,.2f} – ₹{float(r['entry_trigger']):,.2f}"
-                    if m_pp else "—")
+            zone = f"₹{float(m_pp.group(1)):,.2f}–₹{float(r['entry_trigger']):,.2f}" if m_pp else "—"
         except Exception:
             zone = "—"
-        try:
-            filing = str(r["latest_filing"])[:120]
-        except Exception:
-            filing = "No recent exchange filing in last 30d"
-        badge = str(r.get("primary_mode", "")).split(":")[0]
+        filing = str(r.get("latest_filing") or "")[:120]
         lines += [
-            f"### {rank}. {r['symbol']} — {badge} | Score: **{r.get('master_score', '')}**",
-            f"- **CMP:** ₹{h('close', '{:,.2f}')} | **Float Absorption:** {h('float_absorption_10d_pct', '{:.1f}%')} | **Delivery Spike:** {h('delivery_spike_mult', '{:.2f}x')}",
-            f"- **Op-Leverage Score:** {g('op_leverage_score')} | **RS Percentile:** {h('rs_percentile', '{:.1f}')}",
-            f"- **📰 Latest Filing:** {filing}",
-            f"- 🎯 **Entry Trigger:** ₹{float(r['entry_trigger']):,.2f} *(Pullback Buy Zone: {zone})* | 🚫 **Max Chase:** ₹{float(r['max_chase_price']):,.2f}",
-            f"- 🛡️ **Structural Stop-Loss:** ₹{float(r['stop_loss']):,.2f} (Risk: {r.get('risk_pct', '—')}%)",
-            f"- 🎯 **Target 1 (2.5R Free-Ride — Book 30%):** ₹{float(r['target_1']):,.2f}",
-            f"- 🎯 **Target 2 (5R Swing):** ₹{float(r['target_2']):,.2f}",
-            f"- 🌊 **Runner (70%) Trail:** exit only when daily close breaches EMA-65 (Trail: ₹{g('runner_trail_ema65')})",
-            "",
+            f"### {rank}. {r['symbol']} · score {float(r.get('master_score') or 0):.0f}",
+            f"- Entry ₹{float(r['entry_trigger']):,.2f} (pullback zone {zone}), max chase ₹{float(r['max_chase_price']):,.2f}",
+            f"- Stop ₹{float(r['stop_loss']):,.2f} ({r.get('risk_pct', '—')}% risk) · T1 ₹{float(r['target_1']):,.2f} · T2 ₹{float(r['target_2']):,.2f}",
         ]
-    lines += ["*Discipline: Entry only on trigger/pullback-zone price; structural stop on *daily close* basis; 12.5% intraday emergency guard applies. — Auto-generated plan.*"]
+        if filing and not filing.startswith("No recent"):
+            lines.append(f"- Latest filing: {filing}")
+        lines.append("")
+    lines += ["*Stops are on a daily-close basis. Book 30% at T1 and trail the rest on the 65-day EMA.*"]
     return "\n".join(lines)
 
 def parse_query_intent(user_query: str, default_top_n: int = 5) -> tuple[str, int, float | None]:
